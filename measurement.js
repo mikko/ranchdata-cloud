@@ -1,6 +1,7 @@
 'use strict';
 
 const AWS = require('aws-sdk');
+const auth = require('./utils/auth');
 
 const dynamoDb = new AWS.DynamoDB.DocumentClient();
 
@@ -47,12 +48,19 @@ const getUser = token => {
 }
 
 module.exports.create = async event => {
+    const user = auth.getWriteAuthorizedUser(event)
+    if (user === undefined || user === null) {
+        console.log('Access denied');
+        console.dir(event.headers);
+        return; // Intentionally do not return anything and let 5xx fly
+    }
+    console.log("Access granted for user", user);
     const requestBody = JSON.parse(event.body);
 
     const value = requestBody.value;
     const timestamp = requestBody.timestamp;
     const sensor = event.pathParameters.sensor;
-    const user = getUser();
+
     try {
     return await saveValue(getValueItem(user, sensor, value, timestamp))
         .then(() => {

@@ -24,6 +24,7 @@ provider:
   environment:
     MEASUREMENT_TABLE: "measurement"
     SENSOR_TABLE: "sensor"
+    API_TOKENS: ${env:RANCH_API_TOKENS} # format R:TOKEN:USER_ID#W:TOKEN:USER_ID
 
 # you can add statements to the Lambda function's IAM Role here
   iamRoleStatements:
