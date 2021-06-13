@@ -5,12 +5,28 @@ const auth = require('./utils/auth');
 
 const dynamoDb = new AWS.DynamoDB.DocumentClient();
 
+const getSensorPrimaryKey = (user, sensorId) => {
+    return `${user}#${sensorId}`
+}
+
+const primaryKeyToSensor = (key) => {
+    const [user, serial] = key.split("#");
+    return serial;
+}
+
+const primaryKeyToUser = (key) => {
+    const [user, serial] = key.split("#");
+    return user;
+}
+
+
 const getValueItem = (user, sensor, value, timestamp) => {
     const now = new Date().getTime()
-    const expires_at = now + 1000 * 60 * 60 * 24 // * 7 * 4 should be later four weeks
+    const expires_ms = now + 1000 * 60 * 60 * 24 // * 7 * 4 should be later four weeks
+    const expires_at = Math.round(expires_ms / 1000)
     timestamp = timestamp === undefined ? now : timestamp // Default to current timestamp
 
-    const sensorId = `${user}#${sensor}`;
+    const sensorId = getSensorPrimaryKey(user, sensor);
 
     return {
         createdAt: now,
@@ -42,11 +58,6 @@ const saveValue = valueItem => {
     });
 }
 
-const getUser = token => {
-    console.log("HÄLÄRM missing user token handling")
-    return -1;
-}
-
 module.exports.create = async event => {
     const user = auth.getWriteAuthorizedUser(event)
     if (user === undefined || user === null) {
@@ -62,37 +73,103 @@ module.exports.create = async event => {
     const sensor = event.pathParameters.sensor;
 
     try {
-    return await saveValue(getValueItem(user, sensor, value, timestamp))
-        .then(() => {
-            console.log("Succesfully saved measurement");
+        return await saveValue(getValueItem(user, sensor, value, timestamp))
+            .then(() => {
+                console.log("Succesfully saved measurement");
+                return {
+                    statusCode: 200,
+                    body: JSON.stringify(
+                        {
+                            message: "Successfully saved new measurement",
+                            sensor,
+                            value,
+                            timestamp,
+                        },
+                        null,
+                        2
+                    )
+                };
+            })
+            .catch(err => {
+                console.log(err)
+                return {
+                    statusCode: 500,
+                    body: JSON.stringify(err, null, 2)
+                }
+            })
+    } catch (err) {
+        console.log("Something weird happened")
+        console.log(err)
+    }
+};
+
+const ddbToAPIMeasurement = (item) => {
+    // { "sensorId": "23#second", "createdAt": 1623219371812, "value": 10, "expires_at": 1623305771812, "timestamp": 1623219370957 },
+    // Obey the good old ranchdata API schema
+    return {
+        id: `${item.sensorId}_${item.timestamp}`,
+        value: item.value,
+        measurement_time: new Date(item.timestamp).toISOString(),
+        serial: primaryKeyToSensor(item.sensorId),
+        name: "", // TODO later when sensor API available
+        unit: "", // TODO
+        user_id: primaryKeyToUser(item.sensorId)
+    }
+}
+
+module.exports.read = async event => {
+    const user = auth.getReadAuthorizedUser(event)
+    if (user === undefined || user === null) {
+        console.log('Access denied');
+        console.dir(event.headers);
+        return; // Intentionally do not return anything and let 5xx fly
+    }
+    const sensor = event.pathParameters.sensor;
+
+    const sensorId = getSensorPrimaryKey(user, sensor);
+    const queryStart = parseInt(event.queryStringParameters.start);
+    const queryEnd = parseInt(event.queryStringParameters.end);
+
+    const params = {
+        TableName: process.env.MEASUREMENT_TABLE,
+        KeyConditionExpression: "#sensor = :sensorId and #ts BETWEEN :start AND :end", // sensorId, timestamp
+        ExpressionAttributeNames: {
+            "#sensor": "sensorId",
+            "#ts": "timestamp"
+        },
+        ExpressionAttributeValues: {
+            ":sensorId": sensorId,
+            ":start": queryStart,
+            ":end": queryEnd,
+        }
+    };
+
+    return new Promise((resolve, reject) => {
+        dynamoDb.query(params, function (err, data) {
+            if (err) {
+                console.error("Unable to query. Error:", JSON.stringify(err, null, 2));
+                reject(error);
+            } else {
+                const apiMeasurements = data.Items.map(ddbToAPIMeasurement);
+                resolve(apiMeasurements);
+            }
+        });
+    })
+        .then(data => {
             return {
                 statusCode: 200,
-                body: JSON.stringify(
-                    {
-                        message: "Successfully saved new measurement",
-                        sensor,
-                        value,
-                        timestamp,
-                    },
-                    null,
-                    2
-                )
+                headers: {
+                    'Access-Control-Allow-Origin': '*', // Required for CORS support to work
+                    'Access-Control-Allow-Credentials': true, // Required for cookies, authorization headers with HTTPS
+                },
+                body: JSON.stringify(data, null, 2)
             };
         })
         .catch(err => {
             console.log(err)
             return {
                 statusCode: 500,
-                body: JSON.stringify(err, null, 2)
-            }
-        })
-    }
-    catch (err) {
-        console.log("Something weird happened")
-        console.log(err)
-    }
-};
-//
-// saveValue(getValueItem("0", "asd", 13, new Date().getTime()))
-//     .then(data => console.dir(data))
-//     .catch(err => console.dir(err));
+                body: "Unknown error"
+            };
+        });
+}

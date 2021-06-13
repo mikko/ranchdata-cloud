@@ -19,7 +19,7 @@ service: ranchdata-v2
 provider:
   name: aws
   runtime: nodejs14.x
-  stage: dev
+  stage: prod
   region: eu-north-1
   environment:
     MEASUREMENT_TABLE: "measurement"
@@ -70,6 +70,19 @@ functions:
       - http:
           path: api/v2/sensor/{sensor}/measurement
           method: post
+  readMeasurements:
+    handler: measurement.read
+    description: Read a series of measurements from database
+    events:
+      - http:
+          path: api/v2/sensor/{sensor}/series
+          method: get
+          cors: true
+          request:
+            parameters:
+              querystrings:
+                start: true
+                end: true
 #    The following are a few example events you can configure
 #    NOTE: Please make sure to change your handler code to work with those events
 #    Check the event documentation for details
