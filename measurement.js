@@ -22,7 +22,7 @@ const primaryKeyToUser = (key) => {
 
 const getValueItem = (user, sensor, value, timestamp) => {
     const now = new Date().getTime()
-    const expires_ms = now + 1000 * 60 * 60 * 24 // * 7 * 4 should be later four weeks
+    const expires_ms = now + 1000 * 60 * 60 * 24 * 7 * 4 // TODO: environment variable for TTL
     const expires_at = Math.round(expires_ms / 1000)
     timestamp = timestamp === undefined ? now : timestamp // Default to current timestamp
 
@@ -130,9 +130,9 @@ module.exports.read = async event => {
     const queryStart = parseInt(event.queryStringParameters.start);
     const queryEnd = parseInt(event.queryStringParameters.end);
 
-    const params = {
+    const queryObj = {
         TableName: process.env.MEASUREMENT_TABLE,
-        KeyConditionExpression: "#sensor = :sensorId and #ts BETWEEN :start AND :end", // sensorId, timestamp
+        KeyConditionExpression: "#sensor = :sensorId and #ts BETWEEN :start AND :end",
         ExpressionAttributeNames: {
             "#sensor": "sensorId",
             "#ts": "timestamp"
@@ -145,7 +145,7 @@ module.exports.read = async event => {
     };
 
     return new Promise((resolve, reject) => {
-        dynamoDb.query(params, function (err, data) {
+        dynamoDb.query(queryObj, function (err, data) {
             if (err) {
                 console.error("Unable to query. Error:", JSON.stringify(err, null, 2));
                 reject(error);
