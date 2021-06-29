@@ -104,4 +104,4 @@ dist
 .tern-port
 
 # Env
-.serverless.deploy.env
+.serverless-deploy.env
